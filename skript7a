@@ -1,0 +1,28 @@
+# => asi najpraktickejšie mi prišlo využiť open meteo, keby niečo dá sa z neho dostať aj iné údaje ako
+#vietor, status počasia (čícelný kód ktorý sa podľa dokumentácie dá prehodiť na stav ako je slnečno, zamračené a tak
+
+
+$apiUrl = "https://api.open-meteo.com/v1/forecast?latitude=49.19&longitude=16.61&current=temperature_2m&temperature_unit=celsius"
+
+try {
+    $response = Invoke-RestMethod -Uri $apiUrl -Method Get
+    $teplota = $response.current.temperature_2m
+    $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+    $outputfile = "$timestamp - $teplota"
+    $outputscript = "$timestamp - stav v Brne: $teplota °C"
+
+    $desktopPath = [System.Environment]::GetFolderPath([System.Environment+SpecialFolder]::Desktop)
+    $filePath = Join-Path -Path $desktopPath -ChildPath "teploty.txt"
+
+    Add-Content -Path $filePath -Value $outputfile
+
+    Write-Output $outputscript
+}
+catch {
+    $errorMessage = "$($_.Exception.Message)"
+    Write-Output $errorMessage
+    
+    $desktopPath = [System.Environment]::GetFolderPath([System.Environment+SpecialFolder]::Desktop)
+    $filePath = Join-Path -Path $desktopPath -ChildPath "teploty.txt"
+    Add-Content -Path $filePath -Value "$timestamp - $errorMessage"
+}
