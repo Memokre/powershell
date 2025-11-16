@@ -1,1 +1,94 @@
+#nutne spustiŤ ako admin
+# zdroje su registre, winget (z odfiltrovanými položkami ktoré boli získané pomocou winget register callu) a Get-AppxPackage (tento potrebuje amdina aby čítal veci pre všetkých užívateľov)
 
+
+
+
+$regSoftware = @()
+$registryPaths = @(
+    'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall',
+    'HKLM:\SOFTWARE\Wow6432Node\Microsoft\Windows\CurrentVersion\Uninstall',
+    'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall'
+)
+
+foreach ($path in $registryPaths) {
+    if (Test-Path $path) {
+        $regSoftware += Get-ItemProperty -Path "$path\*" -ErrorAction SilentlyContinue |
+            Where-Object { $_.DisplayName -and $_.DisplayVersion -and -not $_.SystemComponent } |
+            Select-Object @{Name = 'Name'; Expression = { $_.DisplayName } }, @{Name = 'Version'; Expression = { $_.DisplayVersion } }
+    }
+}
+$regSoftware = $regSoftware | Sort-Object -Property Name -Unique
+
+$appxSoftware = @()
+try {
+    $appxSoftware = Get-AppxPackage -AllUsers -ErrorAction SilentlyContinue |
+        Where-Object { $_.IsFramework -eq $false -and $_.NonRemovable -eq $false } |
+        Select-Object Name, Version
+}
+catch {}
+
+$wingetSoftware = @()
+try {
+    $wingetOutput = winget list --accept-source-agreements
+
+    $headerLine = $wingetOutput | Where-Object { $_.TrimStart().StartsWith('Name') } | Select-Object -First 1
+    
+    $idStart = $headerLine.IndexOf('Id')
+    $versionStart = $headerLine.IndexOf('Version')
+    $availableStart = $headerLine.IndexOf('Available')
+    $sourceStart = $headerLine.IndexOf('Source')
+
+    $dataStartIndex = 0
+    for ($i = 0; $i -lt $wingetOutput.Length; $i++) {
+        if ($wingetOutput[$i].TrimStart().StartsWith('---')) {
+            $dataStartIndex = $i + 1
+            break
+        }
+    }
+
+    if ($dataStartIndex -gt 0 -and $idStart -gt 0 -and $versionStart -gt $idStart -and $sourceStart -gt $versionStart) {
+        $wingetSoftware = $wingetOutput | Select-Object -Skip $dataStartIndex | ForEach-Object {
+            $line = $_
+            if ($line -and $line.Length -gt $sourceStart) {
+                $source = $line.Substring($sourceStart).Trim()
+                if ($source -eq 'winget') {
+                    [PSCustomObject]@{
+                        Name    = $line.Substring(0, $idStart).Trim()
+                        Version = $line.Substring($versionStart, $availableStart - $versionStart).Trim()
+                    }
+                }
+            }
+        } | Where-Object { $_.Name }
+    }
+}
+catch {}
+
+$allSoftwareNames = ($regSoftware.Name + $appxSoftware.Name + $wingetSoftware.Name) | Sort-Object -Unique
+
+$finalList = foreach ($name in $allSoftwareNames) {
+    $inRegistry = $regSoftware.Name -contains $name
+    $inAppx = $appxSoftware.Name -contains $name
+    $inWinget = $wingetSoftware.Name -contains $name
+
+    $version = $null
+    if ($inRegistry) {
+        $version = ($regSoftware | Where-Object { $_.Name -eq $name }).Version | Select-Object -First 1
+    }
+    elseif ($inWinget) {
+        $version = ($wingetSoftware | Where-Object { $_.Name -eq $name }).Version | Select-Object -First 1
+    }
+    elseif ($inAppx) {
+        $version = ($appxSoftware | Where-Object { $_.Name -eq $name }).Version | Select-Object -First 1
+    }
+
+    [PSCustomObject]@{
+        Name     = $name
+        Version  = $version
+        Registry = if ($inRegistry) { 'Yes' } else { 'No' }
+        Appx     = if ($inAppx) { 'Yes' } else { 'No' }
+        Winget   = if ($inWinget) { 'Yes' } else { 'No' }
+    }
+}
+
+$finalList | Format-Table -AutoSize
