@@ -1,4 +1,8 @@
 
+# password autofill z browseru sa nechytil (Brave), KeePassXC tiež nie,
+
+
+
 $checkInterval = 10
 $lastClipboard = "" 
 
